@@ -3,7 +3,9 @@
 import tensorflow as tf
 import numpy as np
 import os
-from object_detection.data_decoders import tf_example_decoder
+import io
+import PIL.Image
+#from object_detection.data_decoders import tf_example_decoder
 
 
 flags = tf.app.flags
@@ -25,17 +27,38 @@ def read_dataset(input_dir):
   #tensor_dataset = records_dataset.map(decoder)
 '''
 def read_dataset(input_dir):
-  input_files = tf.gfile.Glob(os.path.join(input_dir,"*.jpg"))
-  print(np.arange(len(input_files)))
-  #filename_dataset = tf.data.TFRecordDataset({'name':input_files,'idx':range(len(input_files))})
-  filename_dataset = tf.data.Dataset.from_tensor_slices({'name':input_files,'idx':np.arange(len(input_files))})
-  print(filename_dataset.output_types)
-  print(filename_dataset.output_shapes)
-  iterator = filename_dataset.make_one_shot_iterator()
+  #train_files = tf.gfile.Glob(os.path.join(input_dir,"*train*"))
+  val_files = tf.gfile.Glob(os.path.join(input_dir,"*val*"))
+  dataset = tf.data.TFRecordDataset(val_files)
+
+  def _parse_function(example_proto):
+    
+    features = {"image/encoded": tf.FixedLenFeature((), tf.string, default_value=""),
+              "image/filename": tf.FixedLenFeature((), tf.string, default_value="")}
+    parsed_features = tf.parse_single_example(example_proto, features)
+    encoded_jpg_io = io.BytesIO(parsed_features["image/encoded"])
+    image = PIL.Image.open(encoded_jpg_io)
+
+    #return parsed_features["image/encoded"], parsed_features["image/filename"]
+    return image,parsed_features["image/filename"]
+
+  dataset = dataset.map(_parse_function)
+  dataset = dataset.batch(1)
+
+  iterator = dataset.make_initializable_iterator()
+  next_item = iterator.get_next()
+
+  #example = tf.train.Example()
+  #example.ParseFromString(next_item)
+  #height = int(example.features.feature['height'].int64_list.value[0])
+  #width = int(example.features.feature['width'].int64_list.value[0])
+  #file_name = (example.features.feature['filename'].bytes_list.value[0])
+  #img = (example.features.feature['encoded'].bytes_list.value[0])
 
   sess = tf.Session()
-  for i in range(100):
-    value = sess.run(iterator.get_next())
+  sess.run(iterator.initializer)
+  for i in range(1):
+    value = sess.run(next_item)
     print(value,"--")
 
   #print(filename_dataset.get_next())
