@@ -24,6 +24,8 @@ def read_dataset(input_dir):
 
   decoder = tf_example_decoder.TfExampleDecoder()
   #tensor_dataset = records_dataset.map(decoder)
+  #
+  #
 '''
 def read_dataset(input_dir):
   #train_files = tf.gfile.Glob(os.path.join(input_dir,"*train*"))
