@@ -3,8 +3,7 @@
 import tensorflow as tf
 import numpy as np
 import os
-import io
-import PIL.Image
+import resnet_model as resnet
 #from object_detection.data_decoders import tf_example_decoder
 
 
@@ -36,17 +35,17 @@ def read_dataset(input_dir):
     features = {"image/encoded": tf.FixedLenFeature((), tf.string, default_value=""),
               "image/filename": tf.FixedLenFeature((), tf.string, default_value="")}
     parsed_features = tf.parse_single_example(example_proto, features)
-    encoded_jpg_io = io.BytesIO(parsed_features["image/encoded"])
-    image = PIL.Image.open(encoded_jpg_io)
+    image = tf.image.decode_jpeg(parsed_features["image/encoded"])
+    image_resized = tf.image.resize_images(image, [32, 32])
 
     #return parsed_features["image/encoded"], parsed_features["image/filename"]
-    return image,parsed_features["image/filename"]
+    return image_resized,parsed_features["image/filename"]
 
   dataset = dataset.map(_parse_function)
-  dataset = dataset.batch(1)
+  dataset = dataset.repeat()
+  dataset = dataset.batch(16)
 
   iterator = dataset.make_initializable_iterator()
-  next_item = iterator.get_next()
 
   #example = tf.train.Example()
   #example.ParseFromString(next_item)
@@ -54,12 +53,8 @@ def read_dataset(input_dir):
   #width = int(example.features.feature['width'].int64_list.value[0])
   #file_name = (example.features.feature['filename'].bytes_list.value[0])
   #img = (example.features.feature['encoded'].bytes_list.value[0])
+  return(iterator)
 
-  sess = tf.Session()
-  sess.run(iterator.initializer)
-  for i in range(1):
-    value = sess.run(next_item)
-    print(value,"--")
 
   #print(filename_dataset.get_next())
   
@@ -71,11 +66,42 @@ def main(_):
   assert FLAGS.input_dir, 'input folder'
 
   #Get the input data
-  read_dataset(FLAGS.input_dir)
-  #Get the configuration
-  #config = get_config(FLAGS.config_file)
+  iterator = read_dataset(FLAGS.input_dir)
+  next_item = iterator.get_next()
+
+
   #Create model in training mode
-  #model = modellib.MaskRCNN(mode='training',config=config,model_dir=MODEL_DIR)
+  resnet_size = 32
+  if resnet_size % 6 != 2:
+      raise ValueError('resnet_size must be 6n + 2:', resnet_size)
+  num_blocks = (resnet_size - 2) // 6
+  model = resnet.Model(resnet_size=resnet_size,
+        bottleneck=False,
+        num_classes=10,
+        num_filters=16,
+        kernel_size=3,
+        conv_stride=1,
+        first_pool_size=None,
+        first_pool_stride=None,
+        second_pool_size=8,
+        second_pool_stride=1,
+        block_sizes=[num_blocks] * 3,
+        block_strides=[1, 2, 2],
+        final_size=64,
+        version=1,
+        data_format='channels_last')
+  inputs = tf.placeholder(tf.float32,[16,32,32,3])
+  res = model.__call__(inputs,False)
+
+  sess = tf.Session()
+  init = tf.global_variables_initializer()
+  sess.run(iterator.initializer)
+  sess.run(init)
+  for i in range(100):
+    (value,name) = sess.run(next_item)
+    print(value.shape,"--")
+    rest = sess.run(res,feed_dict={inputs:value})
+    print(rest.shape,"++")
 
 
 if __name__ == '__main__':
