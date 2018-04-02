@@ -10,6 +10,7 @@ import resnet_model as resnet
 flags = tf.app.flags
 flags.DEFINE_string('input_dir', '', 'input folder')
 FLAGS = flags.FLAGS
+_NUM_CLASS = 5
 
 '''
 def read_dataset(input_dir):
@@ -28,20 +29,23 @@ def read_dataset(input_dir):
   #
 '''
 def read_dataset(input_dir):
-  #train_files = tf.gfile.Glob(os.path.join(input_dir,"*train*"))
-  val_files = tf.gfile.Glob(os.path.join(input_dir,"*val*"))
-  dataset = tf.data.TFRecordDataset(val_files)
+  train_files = tf.gfile.Glob(os.path.join(input_dir,"*train*"))
+  #val_files = tf.gfile.Glob(os.path.join(input_dir,"*val*"))
+  dataset = tf.data.TFRecordDataset(train_files)
 
   def _parse_function(example_proto):
     
     features = {"image/encoded": tf.FixedLenFeature((), tf.string, default_value=""),
-              "image/filename": tf.FixedLenFeature((), tf.string, default_value="")}
+              "image/filename": tf.FixedLenFeature((), tf.string, default_value=""),
+              "image/label": tf.FixedLenFeature((), tf.int64, default_value=0)}
     parsed_features = tf.parse_single_example(example_proto, features)
     image = tf.image.decode_jpeg(parsed_features["image/encoded"])
+    image = tf.image.per_image_standardization(image)
     image_resized = tf.image.resize_images(image, [32, 32])
+    label = tf.one_hot(parsed_features["image/label"], _NUM_CLASS+1)
 
     #return parsed_features["image/encoded"], parsed_features["image/filename"]
-    return image_resized,parsed_features["image/filename"]
+    return image_resized,label,parsed_features["image/filename"]
 
   dataset = dataset.map(_parse_function)
   dataset = dataset.repeat()
@@ -59,7 +63,8 @@ def read_dataset(input_dir):
 
 
   #print(filename_dataset.get_next())
-  
+ 
+#def 
 
 def main(_):
   #assert FLAGS.config_file, 'Config file is missing'
@@ -79,7 +84,7 @@ def main(_):
   num_blocks = (resnet_size - 2) // 6
   model = resnet.Model(resnet_size=resnet_size,
         bottleneck=False,
-        num_classes=10,
+        num_classes=6,
         num_filters=16,
         kernel_size=3,
         conv_stride=1,
@@ -93,17 +98,37 @@ def main(_):
         version=1,
         data_format='channels_last')
   inputs = tf.placeholder(tf.float32,[16,32,32,3])
-  res = model.__call__(inputs,False)
+  y_true_batch = tf.placeholder(tf.float32,[16,6])
+  logits = model.__call__(inputs,False)
+  #tf.losses.softmax_cross_entropy(y_true_batch, logits, weights=1.0, label_smoothing=0.1)
+  cross_entropy_softmax = tf.losses.softmax_cross_entropy(onehot_labels = y_true_batch,
+                                logits = logits, weights=1.0, label_smoothing=0)
+  total_loss = tf.reduce_sum(cross_entropy_softmax, name='xentropy_mean')
+  #losses = tf.losses.get_losses()
+  #total_loss = tf.reduce_sum(losses, name='xentropy_mean')
+  #total_loss = tf.losses.get_total_loss(add_regularization_losses=True)
+  #loss_averages = tf.train.ExponentialMovingAverage(0.9, name='avg')
+  #loss_averages_op = loss_averages.apply(losses + [total_loss])
+
+  optimizer = tf.train.AdamOptimizer(0.00001)
+  batchnorm_updates = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+
+  global_step = tf.get_variable('global_step',[],initializer=tf.constant_initializer(0),trainable=False)
+
+  tf.contrib.layers.summarize_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
+  with tf.control_dependencies(batchnorm_updates):
+    train_op = optimizer.minimize(total_loss, global_step=global_step)
+
 
   sess = tf.Session()
   init = tf.global_variables_initializer()
   sess.run(iterator.initializer)
   sess.run(init)
   for i in range(100):
-    (value,name) = sess.run(next_item)
+    (value,label,name) = sess.run(next_item)
     print(value.shape,"--")
-    rest = sess.run(res,feed_dict={inputs:value})
-    print(rest.shape,"++")
+    ls = sess.run(total_loss,feed_dict={inputs:value,y_true_batch:label})
+    print(ls,"++")
 
 
 if __name__ == '__main__':
