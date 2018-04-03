@@ -3,7 +3,8 @@
 import tensorflow as tf
 import numpy as np
 import os
-import resnet_model as resnet
+#import resnet_model as resnet
+import models.resnet as resnet
 #from object_detection.data_decoders import tf_example_decoder
 
 
@@ -82,24 +83,13 @@ def main(_):
   if resnet_size % 6 != 2:
       raise ValueError('resnet_size must be 6n + 2:', resnet_size)
   num_blocks = (resnet_size - 2) // 6
-  model = resnet.Model(resnet_size=resnet_size,
-        bottleneck=False,
-        num_classes=6,
-        num_filters=16,
-        kernel_size=3,
-        conv_stride=1,
-        first_pool_size=None,
-        first_pool_stride=None,
-        second_pool_size=8,
-        second_pool_stride=1,
-        block_sizes=[num_blocks] * 3,
-        block_strides=[1, 2, 2],
-        final_size=64,
-        version=1,
-        data_format='channels_last')
+
   inputs = tf.placeholder(tf.float32,[16,32,32,3])
   y_true_batch = tf.placeholder(tf.float32,[16,6])
-  logits = model.__call__(inputs,False)
+  (nets,end_points) = resnet.resnet(inputs,"resnet50",stage5=True,num_classes=6,training=True)
+  logits = end_points["logits"]
+  print(logits,"----",y_true_batch)
+  #logits = model.__call__(inputs,False)
   #tf.losses.softmax_cross_entropy(y_true_batch, logits, weights=1.0, label_smoothing=0.1)
   cross_entropy_softmax = tf.losses.softmax_cross_entropy(onehot_labels = y_true_batch,
                                 logits = logits, weights=1.0, label_smoothing=0)
